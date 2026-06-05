@@ -69,15 +69,19 @@ export function Header() {
                 <div className="font-semibold">{user.name}</div>
                 <div className="text-muted-foreground capitalize">{user.role}</div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => toggleKillSwitch()}
-                aria-label="Emergency kill switch for all autonomous agents"
-                title="Kill switch (RANK)"
-              >
-                <Power className="size-4" />
-              </Button>
+              {user.role === "admin" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    try { toggleKillSwitch(); } catch (e) { /* role-guarded */ }
+                  }}
+                  aria-label="Emergency kill switch for all autonomous agents"
+                  title="Kill switch (RANK · admin only)"
+                >
+                  <Power className="size-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

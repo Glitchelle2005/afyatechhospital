@@ -1,6 +1,13 @@
 // AfyaTech in-memory + localStorage store
 // Implements TRAIL memory tiers (Transient/Relational/Archival) and a shared
 // accountability log (GUARD audit trail) consumed by all role dashboards.
+//
+// SECURITY NOTE: This is a front-end prototype. All data lives in the browser
+// — there is no server to enforce authorization. The checks below
+// (`requireRole`, password hashing, scoped view) reduce accidental exposure
+// and trivial bypass, but a determined attacker with browser access can
+// still inspect localStorage. Production deployments MUST move auth and
+// patient data to a backend with row-level security.
 
 export type Role = "patient" | "doctor" | "admin";
 export type Severity = "low" | "moderate" | "high" | "critical";
@@ -12,6 +19,8 @@ export interface User {
   name: string;
   role: Role;
   language: "en" | "sw";
+  passwordHash: string;
+  passwordSalt: string;
 }
 
 export interface Department {
@@ -45,6 +54,7 @@ export interface AuditEvent {
 }
 
 const KEY = "afyatech::v1";
+const DEMO_PASSWORD = "demo1234";
 
 interface State {
   users: User[];
@@ -55,11 +65,42 @@ interface State {
   killSwitch: boolean;
 }
 
+// --- password hashing (SHA-256 + per-user salt via Web Crypto) ---
+function randomSalt(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashPassword(password: string, salt: string): Promise<string> {
+  const data = new TextEncoder().encode(`${salt}::${password}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Constant-time-ish string compare (best-effort in JS).
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+function makeDemoUser(id: string, phone: string, name: string, role: Role): User {
+  // Synchronous-feeling seed: SubtleCrypto is async, so we precompute lazily
+  // by storing a known salt and a placeholder hash that the seeder finalises
+  // before first read. To keep the API simple, we use a deterministic salt
+  // for demo accounts only (clearly marked) so seeding stays synchronous.
+  const salt = `demo-salt-${id}`;
+  // Hash for DEMO_PASSWORD with the demo salt, precomputed at runtime below.
+  return { id, phone, name, role, language: "en", passwordHash: "", passwordSalt: salt };
+}
+
 const seed = (): State => ({
   users: [
-    { id: "u1", phone: "0700000001", name: "Amina Patient", role: "patient", language: "en" },
-    { id: "u2", phone: "0700000002", name: "Dr. Otieno", role: "doctor", language: "en" },
-    { id: "u3", phone: "0700000003", name: "Admin Wanjiru", role: "admin", language: "en" },
+    makeDemoUser("u1", "0700000001", "Amina Patient", "patient"),
+    makeDemoUser("u2", "0700000002", "Dr. Otieno", "doctor"),
+    makeDemoUser("u3", "0700000003", "Admin Wanjiru", "admin"),
   ],
   session: null,
   departments: [
@@ -95,12 +136,32 @@ const seed = (): State => ({
 
 let state: State = load();
 
+// Finalise demo password hashes on boot.
+(async () => {
+  if (typeof window === "undefined") return;
+  let dirty = false;
+  for (const u of state.users) {
+    if (!u.passwordHash) {
+      u.passwordHash = await hashPassword(DEMO_PASSWORD, u.passwordSalt);
+      dirty = true;
+    }
+  }
+  if (dirty) persist();
+})();
+
 function load(): State {
   if (typeof window === "undefined") return seed();
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return seed();
-    return { ...seed(), ...JSON.parse(raw) };
+    const merged = { ...seed(), ...JSON.parse(raw) } as State;
+    // Migrate legacy users that have no password fields.
+    merged.users = merged.users.map((u) => ({
+      ...u,
+      passwordSalt: u.passwordSalt ?? `demo-salt-${u.id}`,
+      passwordHash: u.passwordHash ?? "",
+    }));
+    return merged;
   } catch {
     return seed();
   }
@@ -122,22 +183,74 @@ export function getState(): State {
   return state;
 }
 
-export function login(phone: string, role: Role): User | null {
-  const user = state.users.find((u) => u.phone === phone && u.role === role);
-  if (!user) return null;
+// Role-scoped view: hides other patients' PHI from non-clinical users.
+// Patients only see their own queue entry, redacted audit, and no user list.
+export function viewStateFor(user: User | null): {
+  queue: QueueEntry[];
+  departments: Department[];
+  audit: AuditEvent[];
+  killSwitch: boolean;
+} {
+  if (!user) {
+    return { queue: [], departments: state.departments, audit: [], killSwitch: state.killSwitch };
+  }
+  if (user.role === "patient") {
+    const own = state.queue.filter((q) => q.phone === user.phone);
+    // Patients only see counts/load via departments; no other PHI.
+    return {
+      queue: own,
+      departments: state.departments,
+      audit: [],
+      killSwitch: state.killSwitch,
+    };
+  }
+  // Doctors and admins need the full clinical queue + audit trail.
+  return {
+    queue: state.queue,
+    departments: state.departments,
+    audit: state.audit,
+    killSwitch: state.killSwitch,
+  };
+}
+
+export async function login(phone: string, password: string, role: Role): Promise<{ user: User | null; error?: string }> {
+  const trimmed = phone.trim();
+  if (!trimmed || !password) return { user: null, error: "Phone and password are required." };
+  const user = state.users.find((u) => u.phone === trimmed && u.role === role);
+  if (!user || !user.passwordHash) return { user: null, error: "Invalid phone, password, or role." };
+  const candidate = await hashPassword(password, user.passwordSalt);
+  if (!safeEqual(candidate, user.passwordHash)) {
+    addAudit({ agent: "GUARD", action: "Failed login", detail: `Failed sign-in attempt for ${trimmed} (${role}).`, level: "warn" });
+    persist();
+    return { user: null, error: "Invalid phone, password, or role." };
+  }
   state.session = { userId: user.id };
   addAudit({ agent: "System", action: "Login", detail: `${user.name} signed in as ${role}.`, level: "info" });
   persist();
-  return user;
+  return { user };
 }
 
-export function signup(input: { name: string; phone: string; role: Role; language?: "en" | "sw" }): { user: User | null; error?: string } {
+export async function signup(input: {
+  name: string; phone: string; password: string; role: Role; language?: "en" | "sw";
+}): Promise<{ user: User | null; error?: string }> {
   const phone = input.phone.trim();
   const name = input.name.trim();
-  if (!name || !phone) return { user: null, error: "Name and phone are required." };
+  const password = input.password;
+  if (!name || !phone || !password) return { user: null, error: "Name, phone and password are required." };
   if (!/^\d{10,}$/.test(phone.replace(/\s+/g, ""))) return { user: null, error: "Enter a valid phone number (digits only, 10+)." };
+  if (password.length < 6) return { user: null, error: "Password must be at least 6 characters." };
   if (state.users.some((u) => u.phone === phone)) return { user: null, error: "An account with this phone already exists. Please sign in." };
-  const user: User = { id: crypto.randomUUID(), phone, name, role: input.role, language: input.language ?? "en" };
+  // Self-service signup is restricted to patients to prevent privilege escalation.
+  // Doctor/admin accounts must be provisioned by an existing admin (out of scope for the demo).
+  if (input.role !== "patient") {
+    return { user: null, error: "Doctor and admin accounts can only be created by a hospital administrator." };
+  }
+  const salt = randomSalt();
+  const passwordHash = await hashPassword(password, salt);
+  const user: User = {
+    id: crypto.randomUUID(), phone, name, role: input.role, language: input.language ?? "en",
+    passwordHash, passwordSalt: salt,
+  };
   state.users.push(user);
   state.session = { userId: user.id };
   addAudit({ agent: "System", action: "Signup", detail: `${user.name} created a ${input.role} account.`, level: "info" });
@@ -155,6 +268,19 @@ export function logout() {
 export function currentUser(): User | null {
   if (!state.session) return null;
   return state.users.find((u) => u.id === state.session!.userId) ?? null;
+}
+
+function requireRole(...roles: Role[]): User {
+  const u = currentUser();
+  if (!u || !roles.includes(u.role)) {
+    addAudit({
+      agent: "GUARD", level: "critical", action: "Unauthorized action blocked",
+      detail: `Caller ${u?.name ?? "anonymous"} (${u?.role ?? "none"}) attempted a ${roles.join("/")}-only action.`,
+    });
+    persist();
+    throw new Error("You do not have permission to perform this action.");
+  }
+  return u;
 }
 
 export function addAudit(e: Omit<AuditEvent, "id" | "ts">) {
@@ -182,7 +308,17 @@ function sanitizeReason(reason: string): { ok: boolean; reason: string; note?: s
 export function bookAppointment(input: {
   patientName: string; phone: string; department: string; reason: string; severity: Severity; consentRelational: boolean;
 }): { entry: QueueEntry; note?: string } {
+  // Patients book for themselves; doctors/admins may book on behalf.
+  const caller = requireRole("patient", "doctor", "admin");
+  if (caller.role === "patient" && input.phone.trim() !== caller.phone) {
+    throw new Error("Patients can only book under their own phone number.");
+  }
   if (state.killSwitch) throw new Error("Kill switch engaged. Manual triage only.");
+
+  // Basic input validation to limit injected payload size and noise.
+  if (input.patientName.length > 120 || input.phone.length > 20 || input.reason.length > 500) {
+    throw new Error("Input is too long. Please shorten your entry.");
+  }
 
   const safe = sanitizeReason(input.reason);
   const wait = estimateWait(input.department);
@@ -224,6 +360,7 @@ export function bookAppointment(input: {
 }
 
 export function confirmHunter(id: string, approve: boolean) {
+  requireRole("doctor", "admin");
   const q = state.queue.find((x) => x.id === id);
   if (!q) return;
   q.needsHunterReview = false;
@@ -237,6 +374,7 @@ export function confirmHunter(id: string, approve: boolean) {
 }
 
 export function advanceQueue(id: string) {
+  requireRole("doctor", "admin");
   const q = state.queue.find((x) => x.id === id);
   if (!q) return;
   q.status = q.status === "waiting" ? "in_consultation" : "done";
@@ -245,6 +383,7 @@ export function advanceQueue(id: string) {
 }
 
 export function approveReallocation(deptId: string) {
+  requireRole("admin");
   const dept = state.departments.find((d) => d.id === deptId);
   if (!dept) return;
   dept.staff += 1;
@@ -253,12 +392,17 @@ export function approveReallocation(deptId: string) {
 }
 
 export function toggleKillSwitch() {
+  requireRole("admin");
   state.killSwitch = !state.killSwitch;
   addAudit({ agent: "GUARD", level: "critical", action: "Kill switch", detail: state.killSwitch ? "All autonomous agents PAUSED." : "Autonomous agents RESUMED." });
   persist();
 }
 
 export function patientQueuePosition(phone: string): { entry: QueueEntry; position: number } | null {
+  // Only the signed-in patient (or staff) can query a phone's position.
+  const u = currentUser();
+  if (!u) return null;
+  if (u.role === "patient" && u.phone !== phone) return null;
   const entry = state.queue.find((q) => q.phone === phone && q.status !== "done");
   if (!entry) return null;
   const ahead = state.queue.filter(
@@ -267,8 +411,11 @@ export function patientQueuePosition(phone: string): { entry: QueueEntry; positi
   return { entry, position: ahead + 1 };
 }
 
-// CYCLE: weekly insight (synthetic but plausible)
+// CYCLE: weekly insight (synthetic but plausible). Staff-only.
 export function cycleInsights() {
+  const u = currentUser();
+  const empty = { total: 0, done: 0, critical: 0, avgWait: 0, reductionPct: 0 };
+  if (!u || u.role === "patient") return empty;
   const total = state.queue.length;
   const done = state.queue.filter((q) => q.status === "done").length;
   const critical = state.queue.filter((q) => q.severity === "critical").length;

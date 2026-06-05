@@ -26,7 +26,8 @@ function DoctorDashboard() {
   const state = useAfya();
   const user = currentUser();
   const navigate = useNavigate();
-  useEffect(() => { if (!user || user.role !== "doctor") navigate({ to: "/" }); }, [user, navigate]);
+  useEffect(() => { if (!user || (user.role !== "doctor" && user.role !== "admin")) navigate({ to: "/" }); }, [user, navigate]);
+  if (!user || (user.role !== "doctor" && user.role !== "admin")) return null;
 
   const escalated = state.queue.filter((q) => q.needsHunterReview);
   const active = state.queue.filter((q) => q.status !== "done").sort((a, b) => {

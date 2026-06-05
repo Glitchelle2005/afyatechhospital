@@ -36,30 +36,30 @@ function Landing() {
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("patient");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "signup") {
       if (!name.trim() || !phone.trim() || !password.trim()) {
         toast.error("Enter your name, phone number and password to create an account.");
         return;
       }
-      const { user, error } = signup({ name, phone, role });
+      const { user, error } = await signup({ name, phone, password, role });
       if (!user) { toast.error(error ?? "Could not create account."); return; }
       toast.success(`Welcome, ${user.name}. Your account is ready.`);
-      navigate({ to: `/${role}` });
+      navigate({ to: `/${user.role}` });
       return;
     }
     if (!phone.trim() || !password.trim()) {
       toast.error("Enter your phone number and password to continue.");
       return;
     }
-    const u = login(phone.trim(), role);
-    if (!u) {
-      toast.error("We could not find that account. Try a demo number below or sign up.");
+    const { user, error } = await login(phone.trim(), password, role);
+    if (!user) {
+      toast.error(error ?? "Invalid phone, password, or role.");
       return;
     }
-    toast.success(`Welcome, ${u.name}.`);
-    navigate({ to: `/${role}` });
+    toast.success(`Welcome, ${user.name}.`);
+    navigate({ to: `/${user.role}` });
   };
 
   return (
@@ -175,14 +175,14 @@ function Landing() {
 
 
                 <div className="rounded-md bg-muted p-3 text-sm">
-                  <div className="mb-1 font-semibold">Demo accounts (any password)</div>
+                  <div className="mb-1 font-semibold">Demo accounts (password: <code>demo1234</code>)</div>
                   <ul className="grid gap-1 text-muted-foreground">
                     {ROLES.map((r) => (
                       <li key={r.role}>
                         <button
                           type="button"
                           className="underline underline-offset-2"
-                          onClick={() => { setPhone(r.demoPhone); setPassword("demo"); setRole(r.role); }}
+                          onClick={() => { setPhone(r.demoPhone); setPassword("demo1234"); setRole(r.role); setMode("signin"); }}
                         >
                           {r.label}: {r.demoPhone}
                         </button>
