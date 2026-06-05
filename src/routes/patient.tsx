@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { bookAppointment, currentUser, patientQueuePosition, type Severity } from "@/lib/afya-store";
+import { bookAppointment, currentUser, patientQueuePosition, viewStateFor, type Severity } from "@/lib/afya-store";
 import { useAfya } from "@/hooks/use-afya";
 
 export const Route = createFileRoute("/patient")({
@@ -28,26 +28,32 @@ const SEVERITIES: { value: Severity; label: string; help: string }[] = [
 ];
 
 function PatientDashboard() {
-  const state = useAfya();
+  useAfya(); // subscribe to store updates
   const user = currentUser();
   const navigate = useNavigate();
 
   useEffect(() => { if (!user || user.role !== "patient") navigate({ to: "/" }); }, [user, navigate]);
 
-  const [name, setName] = useState(user?.name ?? "");
-  const [phone, setPhone] = useState(user?.phone ?? "");
-  const [dept, setDept] = useState(state.departments[0]?.name ?? "");
+  // Block render before redirect to prevent any flash of protected UI.
+  if (!user || user.role !== "patient") return null;
+
+  // Scoped view: patients only see their own queue entry + departments.
+  const scoped = viewStateFor(user);
+
+  const [name, setName] = useState(user.name);
+  const [phone, setPhone] = useState(user.phone);
+  const [dept, setDept] = useState(scoped.departments[0]?.name ?? "");
   const [reason, setReason] = useState("");
   const [severity, setSeverity] = useState<Severity>("low");
   const [consent, setConsent] = useState(false);
   const [search, setSearch] = useState("");
 
   const filteredDepts = useMemo(
-    () => state.departments.filter((d) => d.name.toLowerCase().includes(search.toLowerCase())),
-    [state.departments, search],
+    () => scoped.departments.filter((d) => d.name.toLowerCase().includes(search.toLowerCase())),
+    [scoped.departments, search],
   );
 
-  const myQueue = patientQueuePosition(phone);
+  const myQueue = patientQueuePosition(user.phone);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
