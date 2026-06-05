@@ -36,30 +36,30 @@ function Landing() {
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("patient");
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "signup") {
       if (!name.trim() || !phone.trim() || !password.trim()) {
         toast.error("Enter your name, phone number and password to create an account.");
         return;
       }
-      const { user, error } = signup({ name, phone, role });
+      const { user, error } = await signup({ name, phone, password, role });
       if (!user) { toast.error(error ?? "Could not create account."); return; }
       toast.success(`Welcome, ${user.name}. Your account is ready.`);
-      navigate({ to: `/${role}` });
+      navigate({ to: `/${user.role}` });
       return;
     }
     if (!phone.trim() || !password.trim()) {
       toast.error("Enter your phone number and password to continue.");
       return;
     }
-    const u = login(phone.trim(), role);
-    if (!u) {
-      toast.error("We could not find that account. Try a demo number below or sign up.");
+    const { user, error } = await login(phone.trim(), password, role);
+    if (!user) {
+      toast.error(error ?? "Invalid phone, password, or role.");
       return;
     }
-    toast.success(`Welcome, ${u.name}.`);
-    navigate({ to: `/${role}` });
+    toast.success(`Welcome, ${user.name}.`);
+    navigate({ to: `/${user.role}` });
   };
 
   return (
