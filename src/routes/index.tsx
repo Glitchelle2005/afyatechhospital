@@ -175,14 +175,14 @@ function Landing() {
 
 
                 <div className="rounded-md bg-muted p-3 text-sm">
-                  <div className="mb-1 font-semibold">Demo accounts (any password)</div>
+                  <div className="mb-1 font-semibold">Demo accounts (password: <code>demo1234</code>)</div>
                   <ul className="grid gap-1 text-muted-foreground">
                     {ROLES.map((r) => (
                       <li key={r.role}>
                         <button
                           type="button"
                           className="underline underline-offset-2"
-                          onClick={() => { setPhone(r.demoPhone); setPassword("demo"); setRole(r.role); }}
+                          onClick={() => { setPhone(r.demoPhone); setPassword("demo1234"); setRole(r.role); setMode("signin"); }}
                         >
                           {r.label}: {r.demoPhone}
                         </button>
