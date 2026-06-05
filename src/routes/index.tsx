@@ -30,19 +30,32 @@ const ROLES: { role: Role; label: string; icon: typeof UserRound; demoPhone: str
 
 function Landing() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("patient");
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "signup") {
+      if (!name.trim() || !phone.trim() || !password.trim()) {
+        toast.error("Enter your name, phone number and password to create an account.");
+        return;
+      }
+      const { user, error } = signup({ name, phone, role });
+      if (!user) { toast.error(error ?? "Could not create account."); return; }
+      toast.success(`Welcome, ${user.name}. Your account is ready.`);
+      navigate({ to: `/${role}` });
+      return;
+    }
     if (!phone.trim() || !password.trim()) {
       toast.error("Enter your phone number and password to continue.");
       return;
     }
     const u = login(phone.trim(), role);
     if (!u) {
-      toast.error("We could not find that account. Try a demo number below.");
+      toast.error("We could not find that account. Try a demo number below or sign up.");
       return;
     }
     toast.success(`Welcome, ${u.name}.`);
