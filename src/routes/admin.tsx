@@ -27,6 +27,7 @@ function AdminDashboard() {
   const user = currentUser();
   const navigate = useNavigate();
   useEffect(() => { if (!user || user.role !== "admin") navigate({ to: "/" }); }, [user, navigate]);
+  if (!user || user.role !== "admin") return null;
 
   const insights = cycleInsights();
 
