@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Activity, ShieldCheck, Stethoscope, UserRound, Users } from "lucide-react";
-import { login, type Role } from "@/lib/afya-store";
+import { login, signup, type Role } from "@/lib/afya-store";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,19 +30,32 @@ const ROLES: { role: Role; label: string; icon: typeof UserRound; demoPhone: str
 
 function Landing() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("patient");
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "signup") {
+      if (!name.trim() || !phone.trim() || !password.trim()) {
+        toast.error("Enter your name, phone number and password to create an account.");
+        return;
+      }
+      const { user, error } = signup({ name, phone, role });
+      if (!user) { toast.error(error ?? "Could not create account."); return; }
+      toast.success(`Welcome, ${user.name}. Your account is ready.`);
+      navigate({ to: `/${role}` });
+      return;
+    }
     if (!phone.trim() || !password.trim()) {
       toast.error("Enter your phone number and password to continue.");
       return;
     }
     const u = login(phone.trim(), role);
     if (!u) {
-      toast.error("We could not find that account. Try a demo number below.");
+      toast.error("We could not find that account. Try a demo number below or sign up.");
       return;
     }
     toast.success(`Welcome, ${u.name}.`);
@@ -74,10 +87,21 @@ function Landing() {
 
           <Card className="border-2">
             <CardHeader>
-              <CardTitle className="text-2xl">Sign in</CardTitle>
-              <CardDescription>Use your phone number. Choose the role that matches you.</CardDescription>
+              <CardTitle className="text-2xl">{mode === "signin" ? "Sign in" : "Create account"}</CardTitle>
+              <CardDescription>
+                {mode === "signin"
+                  ? "Use your phone number. Choose the role that matches you."
+                  : "New here? Register in seconds with your name and phone number."}
+              </CardDescription>
             </CardHeader>
             <CardContent>
+              <Tabs value={mode} onValueChange={(v) => setMode(v as "signin" | "signup")} className="mb-4">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="signin" className="text-base">Sign in</TabsTrigger>
+                  <TabsTrigger value="signup" className="text-base">Sign up</TabsTrigger>
+                </TabsList>
+              </Tabs>
+
               <Tabs value={role} onValueChange={(v) => setRole(v as Role)}>
                 <TabsList className="grid w-full grid-cols-3">
                   {ROLES.map((r) => (
@@ -94,6 +118,20 @@ function Landing() {
               </Tabs>
 
               <form onSubmit={submit} className="space-y-4" noValidate>
+                {mode === "signup" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="name" className="text-base">Full name</Label>
+                    <Input
+                      id="name"
+                      autoComplete="name"
+                      placeholder="e.g. Amina Hassan"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="h-12 text-lg"
+                      required
+                    />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="phone" className="text-base">Phone number</Label>
                   <Input
@@ -110,18 +148,20 @@ function Landing() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password" className="text-base">Password</Label>
-                    <button
-                      type="button"
-                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                      onClick={() => toast.info("A reset code will be sent via SMS. (Demo)")}
-                    >
-                      Forgot password?
-                    </button>
+                    {mode === "signin" && (
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                        onClick={() => toast.info("A reset code will be sent via SMS. (Demo)")}
+                      >
+                        Forgot password?
+                      </button>
+                    )}
                   </div>
                   <Input
                     id="password"
                     type="password"
-                    autoComplete="current-password"
+                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -129,7 +169,10 @@ function Landing() {
                     required
                   />
                 </div>
-                <Button type="submit" className="h-12 w-full text-base">Sign in</Button>
+                <Button type="submit" className="h-12 w-full text-base">
+                  {mode === "signin" ? "Sign in" : "Create account"}
+                </Button>
+
 
                 <div className="rounded-md bg-muted p-3 text-sm">
                   <div className="mb-1 font-semibold">Demo accounts (any password)</div>
