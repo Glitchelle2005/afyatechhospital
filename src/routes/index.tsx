@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Activity, ShieldCheck, Stethoscope, UserRound, Users } from "lucide-react";
-import { login, type Role } from "@/lib/afya-store";
+import { login, signup, type Role } from "@/lib/afya-store";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
