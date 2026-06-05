@@ -131,6 +131,20 @@ export function login(phone: string, role: Role): User | null {
   return user;
 }
 
+export function signup(input: { name: string; phone: string; role: Role; language?: "en" | "sw" }): { user: User | null; error?: string } {
+  const phone = input.phone.trim();
+  const name = input.name.trim();
+  if (!name || !phone) return { user: null, error: "Name and phone are required." };
+  if (!/^\d{10,}$/.test(phone.replace(/\s+/g, ""))) return { user: null, error: "Enter a valid phone number (digits only, 10+)." };
+  if (state.users.some((u) => u.phone === phone)) return { user: null, error: "An account with this phone already exists. Please sign in." };
+  const user: User = { id: crypto.randomUUID(), phone, name, role: input.role, language: input.language ?? "en" };
+  state.users.push(user);
+  state.session = { userId: user.id };
+  addAudit({ agent: "System", action: "Signup", detail: `${user.name} created a ${input.role} account.`, level: "info" });
+  persist();
+  return { user };
+}
+
 export function logout() {
   const u = currentUser();
   if (u) addAudit({ agent: "System", action: "Logout", detail: `${u.name} signed out (auto/manual).`, level: "info" });
