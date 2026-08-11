@@ -10,14 +10,17 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 // Inside the Lovable sandbox we keep the default Cloudflare build so the
 // in-editor preview / publish flow keeps working.
 const isLovableSandbox =
-  !!process.env.LOVABLE_SANDBOX || !!process.env.DEV_SERVER__PROJECT_PATH;
+  !process.env.VERCEL &&
+  (!!process.env.LOVABLE_SANDBOX || !!process.env.DEV_SERVER__PROJECT_PATH);
 
+// On Vercel, Nitro's `vercel` preset emits the Build Output API v3 folder
+// (.vercel/output) which Vercel auto-detects when no framework preset or
+// output directory overrides it (see vercel.json: "framework": null).
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     server: { entry: "server" },
   },
-  // On Vercel, Nitro's `vercel` preset emits the Build Output API v3 folder
-  // (.vercel/output) which Vercel auto-detects with zero project config.
   nitro: isLovableSandbox ? true : { preset: "vercel" },
 });
+
