@@ -16,5 +16,11 @@ const isLovableSandbox =
 // On Vercel, Nitro's `vercel` preset emits the Build Output API v3 folder
 // (.vercel/output) which Vercel auto-detects when no framework preset or
 // output directory overrides it (see vercel.json: "framework": null).
-
+export default defineConfig({
+  tanstackStart: {
+    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
+    server: { entry: "server" },
+  },
+  nitro: isLovableSandbox ? true : { preset: "vercel" },
 });
+
