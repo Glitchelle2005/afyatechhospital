@@ -393,6 +393,7 @@ export function bookAppointment(input: {
   if (safe.note) addAudit({ agent: "GUARD", action: "Dignity filter", detail: safe.note, level: "warn" });
 
   persist();
+  void mirrorAppointment(entry);
   return { entry, note: safe.note };
 }
 
@@ -408,6 +409,7 @@ export function confirmHunter(id: string, approve: boolean) {
     detail: `Clinician ${approve ? "confirmed" : "rejected"} escalation for ${q.patientName}.`,
   });
   persist();
+  void mirrorStatus(q.id, q.status);
 }
 
 export function advanceQueue(id: string) {
@@ -417,6 +419,7 @@ export function advanceQueue(id: string) {
   q.status = q.status === "waiting" ? "in_consultation" : "done";
   addAudit({ agent: "System", level: "info", action: "Queue advanced", detail: `${q.patientName} → ${q.status}.` });
   persist();
+  void mirrorStatus(q.id, q.status);
 }
 
 export function approveReallocation(deptId: string) {
