@@ -136,6 +136,43 @@ const seed = (): State => ({
 
 let state: State = load();
 
+// --- Supabase mirror (external project) -------------------------------
+// Live appointments are hydrated from Supabase on boot and every booking /
+// status change is mirrored back. All calls are best-effort: if Supabase is
+// unreachable the local prototype keeps working exactly as before.
+async function hydrateFromSupabase() {
+  if (typeof window === "undefined") return;
+  try {
+    const { fetchQueueFromSupabase } = await import("./afya-sync");
+    const remote = await fetchQueueFromSupabase();
+    if (remote.length === 0) return;
+    const seen = new Set(remote.map((r) => r.id));
+    state.queue = [...remote, ...state.queue.filter((q) => !seen.has(q.id))];
+    addAudit({
+      agent: "System",
+      action: "Supabase sync",
+      detail: `Loaded ${remote.length} live appointment(s) from the hospital database.`,
+      level: "info",
+    });
+    persist();
+  } catch (e) {
+    console.warn("[afya] Supabase hydrate skipped:", e);
+  }
+}
+void hydrateFromSupabase();
+
+async function mirrorAppointment(entry: QueueEntry) {
+  if (typeof window === "undefined") return;
+  const { pushAppointment } = await import("./afya-sync");
+  await pushAppointment(entry);
+}
+
+async function mirrorStatus(id: string, status: QueueStatus) {
+  if (typeof window === "undefined") return;
+  const { pushStatus } = await import("./afya-sync");
+  await pushStatus(id, status);
+}
+
 // Finalise demo password hashes on boot.
 (async () => {
   if (typeof window === "undefined") return;
