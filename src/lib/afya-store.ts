@@ -136,6 +136,43 @@ const seed = (): State => ({
 
 let state: State = load();
 
+// --- Supabase mirror (external project) -------------------------------
+// Live appointments are hydrated from Supabase on boot and every booking /
+// status change is mirrored back. All calls are best-effort: if Supabase is
+// unreachable the local prototype keeps working exactly as before.
+async function hydrateFromSupabase() {
+  if (typeof window === "undefined") return;
+  try {
+    const { fetchQueueFromSupabase } = await import("./afya-sync");
+    const remote = await fetchQueueFromSupabase();
+    if (remote.length === 0) return;
+    const seen = new Set(remote.map((r) => r.id));
+    state.queue = [...remote, ...state.queue.filter((q) => !seen.has(q.id))];
+    addAudit({
+      agent: "System",
+      action: "Supabase sync",
+      detail: `Loaded ${remote.length} live appointment(s) from the hospital database.`,
+      level: "info",
+    });
+    persist();
+  } catch (e) {
+    console.warn("[afya] Supabase hydrate skipped:", e);
+  }
+}
+void hydrateFromSupabase();
+
+async function mirrorAppointment(entry: QueueEntry) {
+  if (typeof window === "undefined") return;
+  const { pushAppointment } = await import("./afya-sync");
+  await pushAppointment(entry);
+}
+
+async function mirrorStatus(id: string, status: QueueStatus) {
+  if (typeof window === "undefined") return;
+  const { pushStatus } = await import("./afya-sync");
+  await pushStatus(id, status);
+}
+
 // Finalise demo password hashes on boot.
 (async () => {
   if (typeof window === "undefined") return;
@@ -356,6 +393,7 @@ export function bookAppointment(input: {
   if (safe.note) addAudit({ agent: "GUARD", action: "Dignity filter", detail: safe.note, level: "warn" });
 
   persist();
+  void mirrorAppointment(entry);
   return { entry, note: safe.note };
 }
 
@@ -371,6 +409,7 @@ export function confirmHunter(id: string, approve: boolean) {
     detail: `Clinician ${approve ? "confirmed" : "rejected"} escalation for ${q.patientName}.`,
   });
   persist();
+  void mirrorStatus(q.id, q.status);
 }
 
 export function advanceQueue(id: string) {
@@ -380,6 +419,7 @@ export function advanceQueue(id: string) {
   q.status = q.status === "waiting" ? "in_consultation" : "done";
   addAudit({ agent: "System", level: "info", action: "Queue advanced", detail: `${q.patientName} → ${q.status}.` });
   persist();
+  void mirrorStatus(q.id, q.status);
 }
 
 export function approveReallocation(deptId: string) {
