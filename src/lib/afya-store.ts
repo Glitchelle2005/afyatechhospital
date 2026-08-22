@@ -303,6 +303,7 @@ export async function signup(input: {
   state.session = { userId: user.id };
   addAudit({ agent: "System", action: "Signup", detail: `${user.name} created a ${input.role} account.`, level: "info" });
   persist();
+  await mirrorPatient(user.name, user.phone);
   return { user };
 }
 
