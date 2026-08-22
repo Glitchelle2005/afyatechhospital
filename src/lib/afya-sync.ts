@@ -77,7 +77,7 @@ export async function fetchQueueFromSupabase(): Promise<QueueEntry[]> {
 }
 
 /** Find or create the patient record for a phone number. */
-async function upsertPatient(name: string, phone: string): Promise<string | null> {
+export async function upsertPatient(name: string, phone: string): Promise<string | null> {
   const { data: existing } = await supabase
     .from("patients")
     .select("id")
