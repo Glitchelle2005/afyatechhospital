@@ -167,6 +167,17 @@ async function mirrorAppointment(entry: QueueEntry) {
   await pushAppointment(entry);
 }
 
+/** Mirror a newly registered patient into the hospital database. */
+async function mirrorPatient(name: string, phone: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const { upsertPatient } = await import("./afya-sync");
+    await upsertPatient(name, phone);
+  } catch (e) {
+    console.warn("[afya] patient mirror failed:", e);
+  }
+}
+
 async function mirrorStatus(id: string, status: QueueStatus) {
   if (typeof window === "undefined") return;
   const { pushStatus } = await import("./afya-sync");
